@@ -3,14 +3,15 @@ import { ProcessingState, VideoConfig } from '../types';
 import { transcodeWebMToMP4, loadFFmpeg } from '../services/ffmpegService';
 import { Upload, Download, Type, Video as VideoIcon, Scissors, AlertCircle, Loader2, Play, Pause } from 'lucide-react';
 
-const TARGET_WIDTH = 1080 / 2; // Scaled down for preview performance, but ratio matters
-const TARGET_HEIGHT = 1920 / 2; 
+// Use Full HD Vertical Resolution
+const TARGET_WIDTH = 1080; 
+const TARGET_HEIGHT = 1920;
 
 export const VideoEditor: React.FC = () => {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videoConfig, setVideoConfig] = useState<VideoConfig>({
     textOverlay: 'Nhập nội dung của bạn tại đây...',
-    fontSize: 24,
+    fontSize: 48, // Increased default font size for high res
     fontColor: '#ffffff',
     backgroundColor: '#000000',
     backgroundOpacity: 0.6,
@@ -84,12 +85,16 @@ export const VideoEditor: React.FC = () => {
         offsetY = (canvas.height - drawHeight) / 2;
       }
 
+      // Enable high quality image smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      
       ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight);
     }
 
     // 3. Draw Overlay Text
     if (videoConfig.textOverlay) {
-      const padding = 20;
+      const padding = 40; // Increased padding for high res
       const fontSize = videoConfig.fontSize;
       ctx.font = `bold ${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
@@ -117,7 +122,7 @@ export const VideoEditor: React.FC = () => {
       // Draw background box
       const lineHeight = fontSize * 1.4;
       const boxHeight = lines.length * lineHeight + padding * 2;
-      const boxY = canvas.height - boxHeight - 100; // Position near bottom
+      const boxY = canvas.height - boxHeight - 200; // Position near bottom
 
       ctx.fillStyle = `rgba(${hexToRgb(videoConfig.backgroundColor)}, ${videoConfig.backgroundOpacity})`;
       ctx.fillRect(padding, boxY, canvas.width - (padding * 2), boxHeight);
@@ -167,19 +172,42 @@ export const VideoEditor: React.FC = () => {
     if(video.paused) await video.play();
     setIsPlaying(true);
 
-    // 2. Setup MediaRecorder
-    const stream = canvas.captureStream(30); // 30 FPS
+    // 2. Setup MediaRecorder with High Quality
+    const stream = canvas.captureStream(60); // 60 FPS for smoothness
     
-    // Prefer H.264 if available natively, otherwise WebM (which we transcode)
-    // Most browsers support 'video/webm;codecs=h264' or 'video/webm'
+    // IMPORTANT: Capture audio from original video
+    // We try to capture the stream from the video element
+    // Type casting to any because captureStream/mozCaptureStream types vary by browser
+    const videoElement = video as any;
+    let audioStream: MediaStream | null = null;
+    
+    if (videoElement.captureStream) {
+      audioStream = videoElement.captureStream();
+    } else if (videoElement.mozCaptureStream) {
+      audioStream = videoElement.mozCaptureStream();
+    }
+    
+    // Add audio tracks to the canvas stream if they exist
+    if (audioStream) {
+      const audioTracks = audioStream.getAudioTracks();
+      if (audioTracks.length > 0) {
+        // Add the first audio track to our canvas stream
+        stream.addTrack(audioTracks[0]);
+        console.log("Audio track added to recording");
+      } else {
+        console.warn("No audio tracks found in source video");
+      }
+    }
+
+    // Prefer H.264 if available natively, otherwise WebM
     let mimeType = 'video/webm;codecs=h264';
     if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm';
+      mimeType = 'video/webm'; // Fallback (usually VP8/VP9)
     }
 
     const recorder = new MediaRecorder(stream, {
       mimeType: mimeType,
-      videoBitsPerSecond: 5000000 // 5Mbps
+      videoBitsPerSecond: 25000000 // 25 Mbps (High Bitrate for quality)
     });
     
     mediaRecorderRef.current = recorder;
@@ -209,7 +237,7 @@ export const VideoEditor: React.FC = () => {
           const url = URL.createObjectURL(mp4Blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `video-9-16-${Date.now()}.mp4`;
+          a.download = `vina-crop-hq-${Date.now()}.mp4`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -256,7 +284,8 @@ export const VideoEditor: React.FC = () => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 w-full max-w-7xl mx-auto p-4">
       
-      {/* Hidden source video */}
+      {/* Hidden source video - needs muted={false} to allow audio capture if user interacts, 
+          but generally we play it. crossOrigin is crucial for canvas. */}
       <video 
         ref={videoRef} 
         src={videoSrc || ''} 
@@ -312,9 +341,9 @@ export const VideoEditor: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Cỡ chữ</label>
+                <label className="block text-xs text-slate-400 mb-1">Cỡ chữ (High Res)</label>
                 <input 
-                  type="range" min="12" max="60" 
+                  type="range" min="24" max="120" 
                   value={videoConfig.fontSize}
                   onChange={(e) => setVideoConfig({...videoConfig, fontSize: Number(e.target.value)})}
                   className="w-full"
@@ -337,14 +366,14 @@ export const VideoEditor: React.FC = () => {
         <div className="bg-slate-800 rounded-2xl p-6 border border-slate-700 shadow-xl">
            <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-green-400">
             <Download size={24} />
-            Xuất File
+            Xuất File Chất Lượng Cao
           </h2>
 
           {processingState.isProcessing ? (
              <div className="space-y-3">
                <div className="flex items-center justify-between text-sm text-blue-300 font-medium">
                  <span>
-                   {processingState.stage === 'recording' ? 'Đang ghi hình...' : 'Đang chuyển đổi sang MP4...'}
+                   {processingState.stage === 'recording' ? 'Đang ghi hình (Full HD)...' : 'Đang chuyển đổi codec...'}
                  </span>
                  <span>{processingState.stage === 'transcoding' ? `${processingState.progress}%` : ''}</span>
                </div>
@@ -358,12 +387,12 @@ export const VideoEditor: React.FC = () => {
                     )}
                   </div>
                </div>
-               <p className="text-xs text-slate-400 italic">Vui lòng không đóng trình duyệt trong quá trình xử lý.</p>
+               <p className="text-xs text-slate-400 italic">Quá trình này có thể lâu hơn một chút do xử lý chất lượng cao.</p>
              </div>
           ) : processingState.stage === 'completed' ? (
              <div className="bg-green-500/10 border border-green-500/50 rounded-xl p-4 text-center">
                 <p className="text-green-400 font-bold mb-2">100% Xong!</p>
-                <p className="text-sm text-slate-300">Video của bạn đã được tải xuống.</p>
+                <p className="text-sm text-slate-300">Video MP4 chất lượng gốc đã sẵn sàng.</p>
              </div>
           ) : processingState.stage === 'error' ? (
              <div className="bg-red-500/10 border border-red-500/50 rounded-xl p-4 text-center flex items-center justify-center gap-2">
@@ -380,7 +409,7 @@ export const VideoEditor: React.FC = () => {
                   : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white transform hover:translate-y-[-2px]'
                 }`}
              >
-               {ffmpegLoaded ? 'Tải Video Về (.MP4)' : 'Đang tải thư viện...'}
+               {ffmpegLoaded ? 'Tải Video Về (MP4 + Audio)' : 'Đang tải thư viện...'}
              </button>
           )}
         </div>
@@ -391,7 +420,7 @@ export const VideoEditor: React.FC = () => {
          <div className="sticky top-6 w-full max-w-[400px]">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-slate-300 flex items-center gap-2">
-                Xem Trước (9:16)
+                Xem Trước (1080x1920)
               </h3>
               {videoSrc && (
                 <button 
@@ -411,11 +440,12 @@ export const VideoEditor: React.FC = () => {
                 </div>
               )}
               
+              {/* Canvas is actually High Res (1080x1920) but displayed with CSS to fit container */}
               <canvas 
                 ref={canvasRef}
                 width={TARGET_WIDTH}
                 height={TARGET_HEIGHT}
-                className="w-full h-full object-cover block"
+                className="w-full h-full object-contain block"
               />
 
               {/* Playback overlay icon (optional cosmetic) */}
@@ -427,7 +457,7 @@ export const VideoEditor: React.FC = () => {
             </div>
             
             <p className="text-center text-xs text-slate-500 mt-4">
-              * Khung xem trước hiển thị thời gian thực. Kết quả tải về sẽ có chất lượng cao hơn.
+              * Khung xem trước đã được thu nhỏ. File xuất ra sẽ giữ nguyên độ phân giải Full HD và âm thanh gốc.
             </p>
          </div>
       </div>

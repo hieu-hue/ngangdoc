@@ -48,13 +48,22 @@ export const transcodeWebMToMP4 = async (
   });
 
   // Execute FFmpeg command
-  // -preset ultrafast for speed
-  // -c:v libx264 for generic MP4 compatibility
+  // High Quality Settings:
+  // -c:v libx264: Use H.264 codec
+  // -preset superfast: Balance between speed and compression (ultrafast makes bigger files/lower quality per bit)
+  // -crf 20: Constant Rate Factor (18-28 is the sweet spot, lower is better quality). 20 is visually lossless for HD.
+  // -c:a aac: Encode audio to AAC (standard for MP4)
+  // -b:a 192k: Audio bitrate
+  // -movflags +faststart: Optimize for web playback (optional but good practice)
+  
   await ffmpegInstance.exec([
     '-i', inputName,
     '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-strict', 'experimental', // sometimes needed for audio
+    '-preset', 'superfast',
+    '-crf', '20', 
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-strict', 'experimental',
     outputName
   ]);
 
